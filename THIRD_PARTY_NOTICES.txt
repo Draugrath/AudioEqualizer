@@ -5,8 +5,8 @@ Audio Equalizer is licensed as described in LICENSE and EXCEPTIONS.md. It includ
 third-party software listed below, each under its own license.
 
 
-Third-party software compiled into AudioEqualizerMF.dll
-========================================================
+Third-party software compiled into AudioEqualizer.dll
+======================================================
 
   CommonLibSSE-NG 13.1.0      GPL-3.0-or-later   https://github.com/alandtse/CommonLibSSE-NG
     (WITH Modding Exception AND GPL-3.0 Linking Exception)

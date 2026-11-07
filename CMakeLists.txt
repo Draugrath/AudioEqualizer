@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(AudioEqualizerMF VERSION 1.0.0 LANGUAGES CXX)
+project(AudioEqualizer VERSION 1.0.0 LANGUAGES CXX)
 
 set(PLUGIN_VERSION_PATCH "${PROJECT_VERSION_PATCH}")
 if(PLUGIN_VERSION_PATCH STREQUAL "")
@@ -22,8 +22,16 @@ endif()
 # log macros) are rewritten relative to the project, and the build directory, the vcpkg packages
 # and anything else under the user profile go with them. Release builds produce no PDB; where one
 # is produced, only its file name is embedded in the DLL.
+set(EXTERN_DIR "${CMAKE_SOURCE_DIR}/extern")
+if(NOT EXISTS "${EXTERN_DIR}/CommonLibSSE-NG/CMakeLists.txt" AND EXISTS "${CMAKE_SOURCE_DIR}/../WaterOnSteroids/extern/CommonLibSSE-NG/CMakeLists.txt")
+    set(EXTERN_DIR "${CMAKE_SOURCE_DIR}/../WaterOnSteroids/extern")
+endif()
+get_filename_component(EXTERN_DIR "${EXTERN_DIR}" REALPATH)
+
+file(TO_NATIVE_PATH "${EXTERN_DIR}" WOS_NATIVE_EXTERN_DIR)
+set(WOS_PATH_MAPS "${WOS_NATIVE_EXTERN_DIR}=extern" "${EXTERN_DIR}=extern")
 file(TO_NATIVE_PATH "${CMAKE_SOURCE_DIR}" WOS_NATIVE_SOURCE_DIR)
-set(WOS_PATH_MAPS "${WOS_NATIVE_SOURCE_DIR}=${PROJECT_NAME}")
+list(APPEND WOS_PATH_MAPS "${WOS_NATIVE_SOURCE_DIR}=${PROJECT_NAME}")
 if(NOT CMAKE_SOURCE_DIR STREQUAL WOS_NATIVE_SOURCE_DIR)
     list(APPEND WOS_PATH_MAPS "${CMAKE_SOURCE_DIR}=${PROJECT_NAME}")
 endif()
@@ -77,10 +85,6 @@ set(SPDLOG_FMT_EXTERNAL ON CACHE BOOL "" FORCE)
 include(FetchContent)
 if(POLICY CMP0168)
     cmake_policy(SET CMP0168 NEW)
-endif()
-set(EXTERN_DIR "${CMAKE_SOURCE_DIR}/extern")
-if(NOT EXISTS "${EXTERN_DIR}/CommonLibSSE-NG/CMakeLists.txt" AND EXISTS "${CMAKE_SOURCE_DIR}/../WaterOnSteroids/extern/CommonLibSSE-NG/CMakeLists.txt")
-    set(EXTERN_DIR "${CMAKE_SOURCE_DIR}/../WaterOnSteroids/extern")
 endif()
 
 function(declare_dependency name folder repository tag)
@@ -144,7 +148,7 @@ set(SOURCES
     "${CMAKE_SOURCE_DIR}/src/Settings.h")
 
 add_commonlibsse_plugin(${PROJECT_NAME}
-    NAME "AudioEqualizerMF"
+    NAME "AudioEqualizer"
     AUTHOR "${PLUGIN_AUTHOR}"
     VERSION ${PROJECT_VERSION}
     USE_ADDRESS_LIBRARY
@@ -170,7 +174,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     spdlog::spdlog
     fmt::fmt)
 
-set(EQ_DIST_PLUGIN_DIR "${CMAKE_SOURCE_DIR}/dist/AudioEqualizerMF/SKSE/Plugins")
+set(EQ_DIST_PLUGIN_DIR "${CMAKE_SOURCE_DIR}/dist/AudioEqualizer/SKSE/Plugins")
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${EQ_DIST_PLUGIN_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -181,11 +185,11 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         "${EQ_DIST_PLUGIN_DIR}/AudioEqualizer.ini"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_SOURCE_DIR}/LICENSE"
-        "${EQ_DIST_PLUGIN_DIR}/AudioEqualizerMF-LICENSE.txt"
+        "${EQ_DIST_PLUGIN_DIR}/AudioEqualizer-LICENSE.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_SOURCE_DIR}/EXCEPTIONS.md"
-        "${EQ_DIST_PLUGIN_DIR}/AudioEqualizerMF-EXCEPTIONS.txt"
+        "${EQ_DIST_PLUGIN_DIR}/AudioEqualizer-EXCEPTIONS.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_SOURCE_DIR}/THIRD_PARTY_NOTICES.txt"
-        "${EQ_DIST_PLUGIN_DIR}/AudioEqualizerMF-THIRD_PARTY_NOTICES.txt"
+        "${EQ_DIST_PLUGIN_DIR}/AudioEqualizer-THIRD_PARTY_NOTICES.txt"
     VERBATIM)

@@ -96,7 +96,7 @@ namespace Menu
 		{
 			const auto  version = Plugin::VERSION;
 			const auto  key = KeyName(Settings::GetSingleton().toggleKey);
-			const auto  title = std::format("AudioEqualizer v{}.{}.{} ({} to close)###AudioEqualizerMF", version.major(), version.minor(), version.patch(), key);
+			const auto  title = std::format("AudioEqualizer v{}.{}.{} ({} to close)###AudioEqualizer", version.major(), version.minor(), version.patch(), key);
 			const auto* display = ImGuiMCP::GetIO();
 			ImGuiMCP::SetNextWindowSize(ImVec2((std::min)(display->DisplaySize.x - 80.0f, 880.0f), 0.0f), ImGuiCond_Always);
 			ImGuiMCP::SetNextWindowPos(ImVec2(40.0f, display->DisplaySize.y * 0.5f), ImGuiCond_FirstUseEver, ImVec2(0.0f, 0.5f));

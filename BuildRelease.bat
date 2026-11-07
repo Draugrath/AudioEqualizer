@@ -8,7 +8,7 @@ set "BUILD_DIR=build"
 set "CONFIG=Release"
 set "EXPECTED_GENERATOR=Visual Studio 17 2022"
 
-set "PACKAGE_DIR=dist\AudioEqualizerMF"
+set "PACKAGE_DIR=dist\AudioEqualizer"
 set "PACKAGE_FILE="
 
 if /I "%~1"=="clean" (
@@ -211,7 +211,7 @@ if not defined PROJECT_VERSION (
     echo [ERROR] Unable to read CMAKE_PROJECT_VERSION from %BUILD_DIR%\CMakeCache.txt.
     exit /b 1
 )
-set "PACKAGE_FILE=dist\AudioEqualizerMF-!PROJECT_VERSION!.zip"
+set "PACKAGE_FILE=dist\AudioEqualizer-!PROJECT_VERSION!.zip"
 echo [EQ] Project version = !PROJECT_VERSION!
 
 echo.
@@ -223,18 +223,18 @@ if errorlevel 1 (
     exit /b 1
 )
 
-set "DLL=%BUILD_DIR%\Release\AudioEqualizerMF.dll"
+set "DLL=%BUILD_DIR%\Release\AudioEqualizer.dll"
 if not exist "!DLL!" set "DLL="
 if not defined DLL (
-    echo [ERROR] Build completed but AudioEqualizerMF.dll was not found.
+    echo [ERROR] Build completed but AudioEqualizer.dll was not found.
     exit /b 1
 )
 
 echo [EQ] DLL: !DLL!
 
-if not exist "!PACKAGE_DIR!\SKSE\Plugins\AudioEqualizerMF.dll" (
+if not exist "!PACKAGE_DIR!\SKSE\Plugins\AudioEqualizer.dll" (
     echo [ERROR] Package staging DLL not found:
-    echo          !PACKAGE_DIR!\SKSE\Plugins\AudioEqualizerMF.dll
+    echo          !PACKAGE_DIR!\SKSE\Plugins\AudioEqualizer.dll
     exit /b 1
 )
 if not exist "!PACKAGE_DIR!\SKSE\Plugins\AudioEqualizer.ini" (
@@ -242,19 +242,19 @@ if not exist "!PACKAGE_DIR!\SKSE\Plugins\AudioEqualizer.ini" (
     echo          !PACKAGE_DIR!\SKSE\Plugins\AudioEqualizer.ini
     exit /b 1
 )
-if not exist "!PACKAGE_DIR!\SKSE\Plugins\AudioEqualizerMF-LICENSE.txt" (
+if not exist "!PACKAGE_DIR!\SKSE\Plugins\AudioEqualizer-LICENSE.txt" (
     echo [ERROR] Package staging license not found:
-    echo          !PACKAGE_DIR!\SKSE\Plugins\AudioEqualizerMF-LICENSE.txt
+    echo          !PACKAGE_DIR!\SKSE\Plugins\AudioEqualizer-LICENSE.txt
     exit /b 1
 )
-if not exist "!PACKAGE_DIR!\SKSE\Plugins\AudioEqualizerMF-EXCEPTIONS.txt" (
+if not exist "!PACKAGE_DIR!\SKSE\Plugins\AudioEqualizer-EXCEPTIONS.txt" (
     echo [ERROR] Package staging license exceptions not found:
-    echo          !PACKAGE_DIR!\SKSE\Plugins\AudioEqualizerMF-EXCEPTIONS.txt
+    echo          !PACKAGE_DIR!\SKSE\Plugins\AudioEqualizer-EXCEPTIONS.txt
     exit /b 1
 )
-if not exist "!PACKAGE_DIR!\SKSE\Plugins\AudioEqualizerMF-THIRD_PARTY_NOTICES.txt" (
+if not exist "!PACKAGE_DIR!\SKSE\Plugins\AudioEqualizer-THIRD_PARTY_NOTICES.txt" (
     echo [ERROR] Package staging third-party notices not found:
-    echo          !PACKAGE_DIR!\SKSE\Plugins\AudioEqualizerMF-THIRD_PARTY_NOTICES.txt
+    echo          !PACKAGE_DIR!\SKSE\Plugins\AudioEqualizer-THIRD_PARTY_NOTICES.txt
     exit /b 1
 )
 
