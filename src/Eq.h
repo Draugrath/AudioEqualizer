@@ -49,28 +49,166 @@ namespace Eq
 		double a2{ 0.0 };
 	};
 
+	struct Recipe
+	{
+		std::uint8_t method{ 0 };
+		std::uint8_t inverted{ 0 };
+		float        ratio{ 1.0f };
+	};
+
 	struct Filter
 	{
 		std::array<Coefficients, kStages>  stages{};
 		std::array<std::uint32_t, kBands> sections{};
 		double                            inputGain{ 1.0 };
 		double                            outputGain{ 1.0 };
+		Bands                             bands{};
+		std::array<Recipe, kStages>       recipes{};
+		double                            rate{ 48000.0 };
 	};
 
-	inline Coefficients Design(const Band& a_band, double a_q, double a_sampleRate)
+	inline constexpr double kButterworthQ = 0.70710678118654752;
+
+	inline double ResponseDb(const Coefficients& a_c, double a_frequency, double a_sampleRate);
+
+	inline double AnalogPower(Type a_type, double a_ratio, double a_q, double a_a)
 	{
-		const bool passes = a_band.type == Type::kLowPass || a_band.type == Type::kHighPass;
-		if (!a_band.on || (!passes && a_band.gain == 0.0f)) {
+		const double r2 = a_ratio * a_ratio;
+		const double bend = (1.0 - r2) * (1.0 - r2);
+		switch (a_type) {
+		case Type::kLowShelf:
+			return a_a * a_a * ((a_a - r2) * (a_a - r2) + a_a * r2 / (a_q * a_q)) / ((1.0 - a_a * r2) * (1.0 - a_a * r2) + a_a * r2 / (a_q * a_q));
+		case Type::kHighShelf:
+			return a_a * a_a * ((1.0 - a_a * r2) * (1.0 - a_a * r2) + a_a * r2 / (a_q * a_q)) / ((a_a - r2) * (a_a - r2) + a_a * r2 / (a_q * a_q));
+		case Type::kLowPass:
+			return 1.0 / (bend + r2 / (a_q * a_q));
+		case Type::kHighPass:
+			return r2 * r2 / (bend + r2 / (a_q * a_q));
+		default:
+			return (bend + a_a * a_a * r2 / (a_q * a_q)) / (bend + r2 / (a_a * a_a * a_q * a_q));
+		}
+	}
+
+	inline bool IsShelf(Type a_type) { return a_type == Type::kLowShelf || a_type == Type::kHighShelf; }
+	inline bool IsCut(Type a_type) { return a_type == Type::kLowPass || a_type == Type::kHighPass; }
+
+	inline void Poles(Type a_type, double a_frequency, double a_q, double a_a, double a_sampleRate, double& a_a1, double& a_a2)
+	{
+		double poleQ = a_q;
+		double poleFrequency = a_frequency;
+		if (a_type == Type::kBell) {
+			poleQ = a_a * a_q;
+		} else if (a_type == Type::kLowShelf) {
+			poleFrequency = a_frequency / std::sqrt(a_a);
+		} else if (a_type == Type::kHighShelf) {
+			poleFrequency = a_frequency * std::sqrt(a_a);
+		}
+		const double w = (std::min)(2.0 * kPi * poleFrequency / a_sampleRate, 0.95 * kPi);
+		const double zeta = 1.0 / (2.0 * poleQ);
+		const double decay = std::exp(-zeta * w);
+		a_a1 = zeta < 1.0 ? -2.0 * decay * std::cos(w * std::sqrt(1.0 - zeta * zeta)) : -2.0 * decay * std::cosh(w * std::sqrt(zeta * zeta - 1.0));
+		a_a2 = decay * decay;
+	}
+
+	inline Coefficients Numerator(double a_B0, double a_B1, double a_B2, double a_a1, double a_a2, bool& a_ok)
+	{
+		const double plus = std::sqrt((std::max)(a_B0, 0.0));
+		const double minus = std::sqrt((std::max)(a_B1, 0.0));
+		const double sum = 0.5 * (plus + minus);
+		const double root = std::sqrt((std::max)(sum * sum + a_B2 * 0.25, 0.0));
+		const Coefficients c{ 0.5 * (sum + root), 0.5 * (plus - minus), 0.5 * (sum - root), a_a1, a_a2 };
+		a_ok = std::isfinite(c.b0) && std::isfinite(c.b1) && std::isfinite(c.b2) && std::isfinite(c.a1) && std::isfinite(c.a2) && c.b0 > 0.0;
+		return c;
+	}
+
+	inline Coefficients Matched(Type a_type, double a_frequency, double a_q, double a_a, double a_sampleRate, double a_match, bool& a_ok)
+	{
+		double a1 = 0.0, a2 = 0.0;
+		Poles(a_type, a_frequency, a_q, a_a, a_sampleRate, a1, a2);
+		const double A0 = (1.0 + a1 + a2) * (1.0 + a1 + a2);
+		const double A1 = (1.0 - a1 + a2) * (1.0 - a1 + a2);
+		const double A2 = -16.0 * a2;
+		const double wm = 2.0 * kPi * a_match / a_sampleRate;
+		const double p1 = std::sin(wm * 0.5) * std::sin(wm * 0.5);
+		const double p0 = 1.0 - p1;
+		const double target = AnalogPower(a_type, a_match / a_frequency, a_q, a_a) * (A0 * p0 + A1 * p1 + A2 * p0 * p1);
+		if (a_type == Type::kHighPass) {
+			const double gain = std::sqrt((std::max)(target, 0.0)) / (4.0 * p1);
+			a_ok = std::isfinite(gain) && gain > 0.0 && std::isfinite(a1) && std::isfinite(a2);
+			return { gain, -2.0 * gain, gain, a1, a2 };
+		}
+		const double B0 = AnalogPower(a_type, 0.0, a_q, a_a) * A0;
+		const double B1 = AnalogPower(a_type, a_sampleRate * 0.5 / a_frequency, a_q, a_a) * A1;
+		const double B2 = (target - B0 * p0 - B1 * p1) / (p0 * p1);
+		return Numerator(B0, B1, B2, a1, a2, a_ok);
+	}
+
+	inline double GridFrequency(int a_index, double a_frequency, double a_sampleRate)
+	{
+		constexpr int kWide = 48;
+		constexpr int kNear = 96;
+		const double  top = (std::min)(a_sampleRate * 0.49, 20000.0);
+		const double  low = a_frequency * 0.5;
+		const double  high = (std::min)(a_frequency * 2.0, top);
+		return a_index < kWide ? 20.0 * std::pow(top / 20.0, static_cast<double>(a_index) / (kWide - 1)) : low * std::pow(high / low, static_cast<double>(a_index - kWide) / (kNear - 1));
+	}
+
+	inline constexpr int kGridPoints = 144;
+
+	inline Coefficients Fitted(Type a_type, double a_frequency, double a_q, double a_a, double a_sampleRate, bool& a_ok)
+	{
+		double a1 = 0.0, a2 = 0.0;
+		Poles(a_type, a_frequency, a_q, a_a, a_sampleRate, a1, a2);
+		const double A0 = (1.0 + a1 + a2) * (1.0 + a1 + a2);
+		const double A1 = (1.0 - a1 + a2) * (1.0 - a1 + a2);
+		const double A2 = -16.0 * a2;
+		double       m[3][3]{};
+		double       v[3]{};
+		for (int i = 0; i < kGridPoints; ++i) {
+			const double frequency = GridFrequency(i, a_frequency, a_sampleRate);
+			const double analog = AnalogPower(a_type, frequency / a_frequency, a_q, a_a);
+			if (analog < 1e-6) {
+				continue;
+			}
+			const double half = kPi * frequency / a_sampleRate;
+			const double p1 = std::sin(half) * std::sin(half);
+			const double p0 = 1.0 - p1;
+			const double want = analog * (A0 * p0 + A1 * p1 + A2 * p0 * p1);
+			const double x[3]{ p0 / want, p1 / want, p0 * p1 / want };
+			for (int r = 0; r < 3; ++r) {
+				for (int c = 0; c < 3; ++c) {
+					m[r][c] += x[r] * x[c];
+				}
+				v[r] += x[r];
+			}
+		}
+		const double det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+		if (!(std::fabs(det) > 1e-300)) {
+			a_ok = false;
 			return {};
 		}
-		const double frequency = (std::min)(static_cast<double>(a_band.frequency), a_sampleRate * 0.45);
-		const double w = 2.0 * kPi * frequency / a_sampleRate;
+		double B[3];
+		for (int k = 0; k < 3; ++k) {
+			double t[3][3];
+			for (int r = 0; r < 3; ++r) {
+				for (int c = 0; c < 3; ++c) {
+					t[r][c] = c == k ? v[r] : m[r][c];
+				}
+			}
+			B[k] = (t[0][0] * (t[1][1] * t[2][2] - t[1][2] * t[2][1]) - t[0][1] * (t[1][0] * t[2][2] - t[1][2] * t[2][0]) + t[0][2] * (t[1][0] * t[2][1] - t[1][1] * t[2][0])) / det;
+		}
+		return Numerator(B[0], B[1], B[2], a1, a2, a_ok);
+	}
+
+	inline Coefficients Bilinear(Type a_type, double a_frequency, double a_q, double a_a, double a_sampleRate)
+	{
+		const double w = 2.0 * kPi * a_frequency / a_sampleRate;
 		const double cosine = std::cos(w);
-		const double alpha = std::sin(w) / (2.0 * (std::max)(a_q, 0.05));
-		const double a = std::pow(10.0, a_band.gain / 40.0);
+		const double alpha = std::sin(w) / (2.0 * a_q);
+		const double a = a_a;
 		const double root = 2.0 * std::sqrt(a) * alpha;
 		double       b0{}, b1{}, b2{}, a0{}, a1{}, a2{};
-		switch (a_band.type) {
+		switch (a_type) {
 		case Type::kLowShelf:
 			b0 = a * ((a + 1) - (a - 1) * cosine + root);
 			b1 = 2 * a * ((a - 1) - (a + 1) * cosine);
@@ -115,6 +253,89 @@ namespace Eq
 		return { b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0 };
 	}
 
+	inline Coefficients Build(Type a_type, double a_frequency, double a_q, double a_gainDb, double a_sampleRate, const Recipe& a_recipe, bool& a_ok)
+	{
+		const double frequency = (std::min)(a_frequency, a_sampleRate * 0.45);
+		const double q = (std::max)(a_q, 0.05);
+		const double a = std::pow(10.0, a_gainDb / 40.0);
+		const bool   invert = a_recipe.inverted && !IsCut(a_type) && a_gainDb != 0.0;
+		const double used = invert ? 1.0 / a : a;
+		a_ok = true;
+		Coefficients c;
+		if (a_recipe.method == 0) {
+			c = Bilinear(a_type, frequency, q, used, a_sampleRate);
+		} else if (a_recipe.method == 1) {
+			c = Matched(a_type, frequency, q, used, a_sampleRate, frequency * a_recipe.ratio, a_ok);
+		} else {
+			c = Fitted(a_type, frequency, q, used, a_sampleRate, a_ok);
+		}
+		if (a_ok && invert) {
+			c = { 1.0 / c.b0, c.a1 / c.b0, c.a2 / c.b0, c.b1 / c.b0, c.b2 / c.b0 };
+		}
+		a_ok = a_ok && std::isfinite(c.b0) && std::isfinite(c.b1) && std::isfinite(c.b2) && std::isfinite(c.a1) && std::isfinite(c.a2) && std::fabs(c.a2) < 0.99999 && std::fabs(c.a1) < 1.0 + c.a2 - 1e-9;
+		return c;
+	}
+
+	inline double ShapeError(const Coefficients& a_c, Type a_type, double a_frequency, double a_q, double a_a, double a_sampleRate)
+	{
+		double worst = 0.0;
+		for (int i = 0; i < kGridPoints; ++i) {
+			const double frequency = GridFrequency(i, a_frequency, a_sampleRate);
+			const double target = 10.0 * std::log10((std::max)(AnalogPower(a_type, frequency / a_frequency, a_q, a_a), 1e-12));
+			if (target < -60.0) {
+				continue;
+			}
+			worst = (std::max)(worst, std::fabs(ResponseDb(a_c, frequency, a_sampleRate) - target));
+		}
+		return worst;
+	}
+
+	inline Coefficients Design(const Band& a_band, double a_q, double a_sampleRate, Recipe* a_chosen = nullptr)
+	{
+		const bool passes = IsCut(a_band.type);
+		if (!a_band.on || (!passes && a_band.gain == 0.0f)) {
+			return {};
+		}
+		const double frequency = (std::min)(static_cast<double>(a_band.frequency), a_sampleRate * 0.45);
+		const double q = (std::max)(a_q, 0.05);
+		const double a = std::pow(10.0, a_band.gain / 40.0);
+		Recipe       candidates[16];
+		int          count = 0;
+		candidates[count++] = { 0, 0, 1.0f };
+		for (const std::uint8_t inverted : { std::uint8_t{ 0 }, std::uint8_t{ 1 } }) {
+			if (inverted && passes) {
+				break;
+			}
+			for (const float ratio : { 1.0f, 0.8f, 1.25f, 0.65f, 1.5f }) {
+				if ((passes && ratio != 1.0f) || frequency * ratio >= a_sampleRate * 0.49) {
+					continue;
+				}
+				candidates[count++] = { 1, inverted, ratio };
+			}
+			if (!passes) {
+				candidates[count++] = { 2, inverted, 1.0f };
+			}
+		}
+		Coefficients best{};
+		Recipe       bestRecipe{};
+		double       bestError = 1e300;
+		for (int i = 0; i < count; ++i) {
+			bool               ok = false;
+			const Coefficients c = Build(a_band.type, frequency, q, a_band.gain, a_sampleRate, candidates[i], ok);
+			if (!ok) {
+				continue;
+			}
+			const double error = ShapeError(c, a_band.type, frequency, q, a, a_sampleRate);
+			if (error < bestError) {
+				best = c, bestRecipe = candidates[i], bestError = error;
+			}
+		}
+		if (a_chosen) {
+			*a_chosen = bestRecipe;
+		}
+		return best;
+	}
+
 	inline double ResponseDb(const Coefficients& a_c, double a_frequency, double a_sampleRate)
 	{
 		const double w = 2.0 * kPi * a_frequency / a_sampleRate;
@@ -138,28 +359,36 @@ namespace Eq
 		return total;
 	}
 
+	inline std::size_t SectionCount(const Band& a_band)
+	{
+		return IsCut(a_band.type) ? static_cast<std::size_t>(std::clamp(a_band.slope / 12, 1, static_cast<int>(kMaxSections))) : std::size_t{ 1 };
+	}
+
+	inline double SectionQ(const Band& a_band, std::size_t a_sections, std::size_t a_section)
+	{
+		if (a_sections > 1) {
+			double q = 1.0 / (2.0 * std::cos(kPi * static_cast<double>(2 * a_sections - 1 - 2 * a_section) / (4.0 * static_cast<double>(a_sections))));
+			return a_section + 1 == a_sections ? q * a_band.q : q;
+		}
+		return a_band.q * kButterworthQ;
+	}
+
 	inline Filter Design(const Bands& a_bands, double a_sampleRate, double a_inputDb = 0.0, double a_outputDb = 0.0)
 	{
 		Filter filter;
 		filter.inputGain = std::pow(10.0, a_inputDb / 20.0);
 		filter.outputGain = std::pow(10.0, a_outputDb / 20.0);
+		filter.bands = a_bands;
+		filter.rate = a_sampleRate;
 		for (std::size_t index = 0; index < kBands; ++index) {
 			const auto& band = a_bands[index];
-			const bool  passes = band.type == Type::kLowPass || band.type == Type::kHighPass;
-			if (!band.on || (!passes && band.gain == 0.0f)) {
+			if (!band.on || (!IsCut(band.type) && band.gain == 0.0f)) {
 				continue;
 			}
-			const auto sections = passes ? static_cast<std::size_t>(std::clamp(band.slope / 12, 1, static_cast<int>(kMaxSections))) : std::size_t{ 1 };
+			const auto sections = SectionCount(band);
 			filter.sections[index] = static_cast<std::uint32_t>(sections);
 			for (std::size_t section = 0; section < sections; ++section) {
-				double q = band.q;
-				if (sections > 1) {
-					q = 1.0 / (2.0 * std::cos(kPi * static_cast<double>(2 * sections - 1 - 2 * section) / (4.0 * static_cast<double>(sections))));
-					if (section + 1 == sections) {
-						q *= band.q / 0.7071;
-					}
-				}
-				filter.stages[index * kMaxSections + section] = Design(band, q, a_sampleRate);
+				filter.stages[index * kMaxSections + section] = Design(band, SectionQ(band, sections, section), a_sampleRate, &filter.recipes[index * kMaxSections + section]);
 			}
 		}
 		return filter;
@@ -180,7 +409,7 @@ namespace Eq
 
 	inline float SoftLimit(float a_sample)
 	{
-		constexpr float kKnee = 0.8f;
+		constexpr float kKnee = 0.95f;
 		const float     size = std::fabs(a_sample);
 		if (!(size > kKnee)) {
 			return a_sample;
@@ -204,44 +433,42 @@ namespace Eq
 		{
 			state = {};
 			active = target;
-			remaining = 0;
-			countdown = 0;
+			motion = {};
+			fading = {};
+			fadeLeft = 0;
+			gainMoving = false;
 			Index();
 		}
 
 		void Snap(const Filter& a_filter)
 		{
-			Prepare(a_filter);
-			active = a_filter;
 			target = a_filter;
-			remaining = 0;
-			countdown = 0;
+			active = a_filter;
+			rate = a_filter.rate;
+			state = {};
+			motion = {};
+			fading = {};
+			fadeLeft = 0;
+			gainMoving = false;
 			Index();
 		}
 
 		void Process(const Filter& a_filter, float* a_samples, std::uint32_t a_frames, std::uint32_t a_channels)
 		{
-			if (std::memcmp(&a_filter, &target, sizeof(Filter)) != 0) {
-				Prepare(a_filter);
-				target = a_filter;
-				remaining = kFadeSteps;
-				countdown = 0;
-				Index();
+			if (!Same(a_filter, target)) {
+				Retarget(a_filter);
 			}
 			const std::uint32_t channels = (std::min)(a_channels, static_cast<std::uint32_t>(kMaxChannels));
 			std::uint32_t       done = 0;
 			while (done < a_frames && !Bypassed()) {
-				std::uint32_t chunk = (std::min)(a_frames - done, kChunk);
-				if (remaining > 0) {
-					if (countdown == 0) {
-						Fade();
-						countdown = kFadeChunk;
-						if (Bypassed()) {
-							return;
-						}
-					}
-					chunk = (std::min)(chunk, countdown);
-					countdown -= chunk;
+				const bool          moving = Moving();
+				const std::uint32_t chunk = (std::min)(a_frames - done, moving ? kStep : kChunk);
+				startGain[0] = active.inputGain;
+				startGain[1] = active.outputGain;
+				gliding = moving;
+				if (moving) {
+					startStages = active.stages;
+					Advance(chunk);
 				}
 				for (std::uint32_t channel = 0; channel < channels; ++channel) {
 					Run(a_samples + done * a_channels + channel, chunk, a_channels, channel);
@@ -254,24 +481,196 @@ namespace Eq
 
 	private:
 		static constexpr std::uint32_t kChunk = 512;
-		static constexpr std::uint32_t kFadeChunk = 1;
-		static constexpr std::uint32_t kFadeSteps = 4096;
-		static constexpr double        kFadeStep = 0.003;
+		static constexpr std::uint32_t kStep = 32;
+		static constexpr double        kGlideSeconds = 0.035;
+		static constexpr double        kFadeSeconds = 0.0076;
+		static constexpr double        kFadeLength = 0.093;
+		static constexpr double        kSettleLength = 0.02;
+
+		struct Motion
+		{
+			bool   on{ false };
+			double progress{ 0.0 };
+			Band   from{};
+			Band   to{};
+		};
+
+		static bool Same(const Filter& a_left, const Filter& a_right)
+		{
+			return a_left.inputGain == a_right.inputGain && a_left.outputGain == a_right.outputGain && a_left.rate == a_right.rate && a_left.bands == a_right.bands &&
+			       a_left.sections == a_right.sections && std::memcmp(a_left.stages.data(), a_right.stages.data(), sizeof(a_left.stages)) == 0;
+		}
+
+		static Band Effective(const Band& a_band)
+		{
+			Band band = a_band;
+			if (!band.on && !IsCut(band.type)) {
+				band.gain = 0.0f;
+			}
+			band.on = true;
+			return band;
+		}
+
+		static bool Glides(const Band& a_before, const Band& a_after)
+		{
+			if (a_before.type != a_after.type || SectionCount(a_before) != SectionCount(a_after)) {
+				return false;
+			}
+			return !IsCut(a_after.type) || (a_before.on && a_after.on);
+		}
+
+		[[nodiscard]] Band Current(std::size_t a_band) const
+		{
+			const auto&  m = motion[a_band];
+			const double t = (std::min)(m.progress, 1.0);
+			Band         band = m.to;
+			band.frequency = static_cast<float>(std::exp(std::log(m.from.frequency) + (std::log(m.to.frequency) - std::log(m.from.frequency)) * t));
+			band.gain = static_cast<float>(m.from.gain + (m.to.gain - m.from.gain) * t);
+			band.q = static_cast<float>(std::exp(std::log(m.from.q) + (std::log(m.to.q) - std::log(m.from.q)) * t));
+			return band;
+		}
+
+		[[nodiscard]] bool Moving() const
+		{
+			if (fadeLeft > 0 || gainMoving) {
+				return true;
+			}
+			for (const auto& m : motion) {
+				if (m.on) {
+					return true;
+				}
+			}
+			return false;
+		}
 
 		[[nodiscard]] bool Bypassed() const
 		{
-			return used == 0 && remaining == 0 && active.inputGain == 1.0 && active.outputGain == 1.0;
+			return used == 0 && !Moving() && active.inputGain == 1.0 && active.outputGain == 1.0;
 		}
 
-		void Prepare(const Filter& a_filter)
+		void Grow(std::size_t a_band, std::size_t a_sections)
 		{
-			for (std::size_t band = 0; band < kBands; ++band) {
-				for (std::size_t section = active.sections[band]; section < a_filter.sections[band]; ++section) {
-					for (auto& channel : state) {
-						channel[band * kMaxSections + section] = {};
-					}
+			for (std::size_t section = active.sections[a_band]; section < a_sections; ++section) {
+				active.stages[a_band * kMaxSections + section] = {};
+				for (auto& channel : state) {
+					channel[a_band * kMaxSections + section] = {};
 				}
-				active.sections[band] = (std::max)(active.sections[band], a_filter.sections[band]);
+			}
+			active.sections[a_band] = (std::max)(active.sections[a_band], static_cast<std::uint32_t>(a_sections));
+		}
+
+		void Retarget(const Filter& a_filter)
+		{
+			rate = a_filter.rate;
+			for (std::size_t band = 0; band < kBands; ++band) {
+				const Band& before = target.bands[band];
+				const Band& after = a_filter.bands[band];
+				const bool  unchanged = before == after && target.sections[band] == a_filter.sections[band] &&
+				                       std::memcmp(&target.stages[band * kMaxSections], &a_filter.stages[band * kMaxSections], sizeof(Coefficients) * kMaxSections) == 0;
+				if (unchanged) {
+					continue;
+				}
+				if (Glides(before, after)) {
+					const Band start = motion[band].on ? Current(band) : Effective(before);
+					motion[band] = { true, 0.0, start, Effective(after) };
+					Grow(band, SectionCount(after));
+					for (std::size_t section = 0; section < kMaxSections; ++section) {
+						fading[band * kMaxSections + section] = false;
+					}
+				} else {
+					motion[band].on = false;
+					Grow(band, a_filter.sections[band]);
+					for (std::size_t section = 0; section < active.sections[band]; ++section) {
+						fading[band * kMaxSections + section] = true;
+					}
+					fadeLeft = (std::max)(fadeLeft, static_cast<std::int64_t>(kFadeLength * rate));
+				}
+			}
+			if (a_filter.inputGain != target.inputGain || a_filter.outputGain != target.outputGain) {
+				gainFrom[0] = 20.0 * std::log10(active.inputGain);
+				gainFrom[1] = 20.0 * std::log10(active.outputGain);
+				gainTo[0] = 20.0 * std::log10(a_filter.inputGain);
+				gainTo[1] = 20.0 * std::log10(a_filter.outputGain);
+				gainProgress = 0.0;
+				gainMoving = true;
+			}
+			target = a_filter;
+			Index();
+		}
+
+		void Advance(std::uint32_t a_frames)
+		{
+			const double step = static_cast<double>(a_frames) / (kGlideSeconds * rate);
+			for (std::size_t band = 0; band < kBands; ++band) {
+				auto& m = motion[band];
+				if (!m.on) {
+					continue;
+				}
+				m.progress += step;
+				if (m.progress >= 1.0) {
+					m.on = false;
+					for (std::size_t section = 0; section < active.sections[band]; ++section) {
+						fading[band * kMaxSections + section] = true;
+					}
+					fadeLeft = (std::max)(fadeLeft, static_cast<std::int64_t>(kSettleLength * rate));
+				}
+				const Band        now = Current(band);
+				const std::size_t sections = SectionCount(now);
+				for (std::size_t section = 0; section < sections; ++section) {
+					const Recipe recipe{ 1, static_cast<std::uint8_t>(now.gain < 0.0f && !IsCut(now.type) ? 1 : 0), 1.0f };
+					bool         ok = false;
+					Coefficients c = Build(now.type, now.frequency, SectionQ(now, sections, section), now.gain, rate, recipe, ok);
+					if (!ok) {
+						c = Build(now.type, now.frequency, SectionQ(now, sections, section), now.gain, rate, Recipe{}, ok);
+					}
+					active.stages[band * kMaxSections + section] = c;
+				}
+			}
+			if (fadeLeft > 0) {
+				const double blend = 1.0 - std::exp(-static_cast<double>(a_frames) / (kFadeSeconds * rate));
+				fadeLeft -= a_frames;
+				for (std::size_t stage = 0; stage < kStages; ++stage) {
+					if (!fading[stage]) {
+						continue;
+					}
+					auto&       from = active.stages[stage];
+					const auto& to = target.stages[stage];
+					if (fadeLeft <= 0) {
+						from = to;
+						continue;
+					}
+					from.b0 += (to.b0 - from.b0) * blend;
+					from.b1 += (to.b1 - from.b1) * blend;
+					from.b2 += (to.b2 - from.b2) * blend;
+					from.a1 += (to.a1 - from.a1) * blend;
+					from.a2 += (to.a2 - from.a2) * blend;
+				}
+				if (fadeLeft <= 0) {
+					fadeLeft = 0;
+					fading = {};
+					for (std::size_t band = 0; band < kBands; ++band) {
+						if (!motion[band].on && active.sections[band] > target.sections[band]) {
+							for (std::size_t section = target.sections[band]; section < active.sections[band]; ++section) {
+								for (auto& channel : state) {
+									channel[band * kMaxSections + section] = {};
+								}
+							}
+							active.sections[band] = target.sections[band];
+						}
+					}
+					Index();
+				}
+			}
+			if (gainMoving) {
+				gainProgress += step;
+				if (gainProgress >= 1.0) {
+					active.inputGain = target.inputGain;
+					active.outputGain = target.outputGain;
+					gainMoving = false;
+				} else {
+					active.inputGain = std::pow(10.0, (gainFrom[0] + (gainTo[0] - gainFrom[0]) * gainProgress) / 20.0);
+					active.outputGain = std::pow(10.0, (gainFrom[1] + (gainTo[1] - gainFrom[1]) * gainProgress) / 20.0);
+				}
 			}
 		}
 
@@ -285,30 +684,13 @@ namespace Eq
 			}
 		}
 
-		void Fade()
-		{
-			if (--remaining == 0) {
-				active = target;
-				Index();
-				return;
-			}
-			active.inputGain += (target.inputGain - active.inputGain) * kFadeStep;
-			active.outputGain += (target.outputGain - active.outputGain) * kFadeStep;
-			for (std::size_t i = 0; i < used; ++i) {
-				auto&       from = active.stages[order[i]];
-				const auto& to = target.stages[order[i]];
-				from.b0 += (to.b0 - from.b0) * kFadeStep;
-				from.b1 += (to.b1 - from.b1) * kFadeStep;
-				from.b2 += (to.b2 - from.b2) * kFadeStep;
-				from.a1 += (to.a1 - from.a1) * kFadeStep;
-				from.a2 += (to.a2 - from.a2) * kFadeStep;
-			}
-		}
-
 		void Run(float* a_samples, std::uint32_t a_frames, std::uint32_t a_stride, std::uint32_t a_channel)
 		{
+			const bool   ramp = startGain[0] != active.inputGain || startGain[1] != active.outputGain;
+			const double inStep = (active.inputGain - startGain[0]) / a_frames;
+			const double outStep = (active.outputGain - startGain[1]) / a_frames;
 			for (std::uint32_t i = 0; i < a_frames; ++i) {
-				scratch[i] = a_samples[static_cast<std::size_t>(i) * a_stride] * active.inputGain;
+				scratch[i] = a_samples[static_cast<std::size_t>(i) * a_stride] * (ramp ? startGain[0] + inStep * (i + 1) : active.inputGain);
 			}
 			auto& delays = state[a_channel];
 			for (std::size_t n = 0; n < used; ++n) {
@@ -316,12 +698,27 @@ namespace Eq
 				const auto   c = active.stages[stage];
 				double       z1 = delays[stage][0];
 				double       z2 = delays[stage][1];
-				for (std::uint32_t i = 0; i < a_frames; ++i) {
-					const double in = scratch[i];
-					const double out = c.b0 * in + z1;
-					z1 = c.b1 * in - c.a1 * out + z2;
-					z2 = c.b2 * in - c.a2 * out;
-					scratch[i] = out;
+				if (gliding && std::memcmp(&startStages[stage], &c, sizeof(Coefficients)) != 0) {
+					const auto&  s0 = startStages[stage];
+					const double inv = 1.0 / a_frames;
+					const double d0 = (c.b0 - s0.b0) * inv, d1 = (c.b1 - s0.b1) * inv, d2 = (c.b2 - s0.b2) * inv, e1 = (c.a1 - s0.a1) * inv, e2 = (c.a2 - s0.a2) * inv;
+					double       b0 = s0.b0, b1 = s0.b1, b2 = s0.b2, a1 = s0.a1, a2 = s0.a2;
+					for (std::uint32_t i = 0; i < a_frames; ++i) {
+						b0 += d0, b1 += d1, b2 += d2, a1 += e1, a2 += e2;
+						const double in = scratch[i];
+						const double out = b0 * in + z1;
+						z1 = b1 * in - a1 * out + z2;
+						z2 = b2 * in - a2 * out;
+						scratch[i] = out;
+					}
+				} else {
+					for (std::uint32_t i = 0; i < a_frames; ++i) {
+						const double in = scratch[i];
+						const double out = c.b0 * in + z1;
+						z1 = c.b1 * in - c.a1 * out + z2;
+						z2 = c.b2 * in - c.a2 * out;
+						scratch[i] = out;
+					}
 				}
 				delays[stage][0] = z1;
 				delays[stage][1] = z2;
@@ -337,14 +734,23 @@ namespace Eq
 				}
 			}
 			for (std::uint32_t i = 0; i < a_frames; ++i) {
-				a_samples[static_cast<std::size_t>(i) * a_stride] = static_cast<float>(scratch[i] * active.outputGain);
+				a_samples[static_cast<std::size_t>(i) * a_stride] = static_cast<float>(scratch[i] * (ramp ? startGain[1] + outStep * (i + 1) : active.outputGain));
 			}
 		}
 
 		Filter                                                               active{};
 		Filter                                                               target{};
-		std::uint32_t                                                        remaining{ 0 };
-		std::uint32_t                                                        countdown{ 0 };
+		double                                                               rate{ 48000.0 };
+		std::array<Motion, kBands>                                           motion{};
+		std::array<bool, kStages>                                            fading{};
+		std::int64_t                                                         fadeLeft{ 0 };
+		bool                                                                 gainMoving{ false };
+		double                                                               gainProgress{ 0.0 };
+		double                                                               gainFrom[2]{};
+		double                                                               gainTo[2]{};
+		double                                                               startGain[2]{ 1.0, 1.0 };
+		bool                                                                 gliding{ false };
+		std::array<Coefficients, kStages>                                    startStages{};
 		std::size_t                                                          used{ 0 };
 		std::array<std::uint16_t, kStages>                                   order{};
 		std::array<double, kChunk>                                           scratch{};
@@ -759,11 +1165,14 @@ namespace Eq
 				highPass = { (1.0 + c) / 2.0 / a0, -(1.0 + c) / a0, (1.0 + c) / 2.0 / a0, -2.0 * c / a0, (1.0 - alpha) / a0 };
 			}
 			total = 0.0;
+			eqTotal = 0.0;
 			for (std::size_t point = 0; point < kAutoGainPoints; ++point) {
 				const double frequency = AutoGainFrequency(point);
 				const double w = 2.0 * kPi * (std::min)(frequency, a_rate * 0.499) / a_rate;
 				weight[point] = frequency < a_rate * 0.499 ? std::pow(10.0, (BiquadDb(shelf, w) + BiquadDb(highPass, w)) / 10.0) : 0.0;
 				total += weight[point];
+				eqWeight[point] = frequency < a_rate * 0.499 ? 1.0 / (1.0 + std::pow(kEqLowHz / frequency, 4.0)) / (1.0 + std::pow(frequency / kEqHighHz, 4.0)) : 0.0;
+				eqTotal += eqWeight[point];
 				position[point] = 2.0 * std::log2(frequency / BalanceFrequency(0));
 				for (std::size_t band = 0; band < kBalanceBands; ++band) {
 					spread[point][band] = BalanceFrequency(band) > a_rate * 0.45 ? 0.0 : BiquadDb(BalanceBell(band, 1.0, a_rate), w);
@@ -785,7 +1194,7 @@ namespace Eq
 		{
 			double curve = 0.0;
 			for (std::size_t point = 0; point < kAutoGainPoints; ++point) {
-				curve += weight[point] * a_eq[point];
+				curve += eqWeight[point] * std::sqrt(static_cast<double>(a_eq[point]));
 			}
 			double            program = 0.0;
 			double            corrected = 0.0;
@@ -809,7 +1218,7 @@ namespace Eq
 					corrected += share * std::pow(10.0, db / 10.0);
 				}
 			}
-			const double eq = total > 0.0 && curve > 0.0 ? -10.0 * std::log10(curve / total) : 0.0;
+			const double eq = eqTotal > 0.0 && curve > 0.0 ? -20.0 * std::log10(curve / eqTotal) : 0.0;
 			const double balance = program > 0.0 && corrected > 0.0 ? -10.0 * std::log10(corrected / program) : 0.0;
 			return std::clamp(eq + balance, -kLimitDb, kLimitDb);
 		}
@@ -843,6 +1252,10 @@ namespace Eq
 		std::array<double, kAutoGainPoints>                                position{};
 		std::array<std::array<double, kBalanceBands>, kAutoGainPoints>     spread{};
 		double                                                             total{ 0.0 };
+		std::array<double, kAutoGainPoints>                                eqWeight{};
+		double                                                             eqTotal{ 0.0 };
+		static constexpr double                                            kEqLowHz = 42.39;
+		static constexpr double                                            kEqHighHz = 15061.0;
 		double                                                             gainDb{ 0.0 };
 		double                                                             applied{ 1.0 };
 		double                                                             rate{ 48000.0 };

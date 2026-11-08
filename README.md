@@ -4,12 +4,12 @@ SKSE plugin that processes Skyrim's final audio mix in real time: an 8-band para
 
 ## Features
 
-- 8-band parametric EQ: bell, low and high shelf, low and high pass (12 to 96 dB/oct), double-precision filters, zero latency
+- 8-band parametric EQ: bell, low and high shelf, low and high pass (12 to 96 dB/oct), double-precision filters matched to analog curves up to 20 kHz, zero latency; Q 1 is the standard width (Butterworth for cuts)
 - Live spectrum of the processed output
 - Balance: zero-latency spectral balance toward a pink noise curve over 19 half-octave bands (cuts up to 6 dB, boosts up to 3 dB)
-- Auto gain: compensates the level change of the EQ (from its curve against pink noise) and of Balance (from the measured band levels), K-weighted
-- Input and output gain with peak meters, one soft limiter at the end of the chain
-- Click-free bypass and parameter changes
+- Auto gain: compensates the level change of the EQ (estimated from its curve) and of Balance (from the measured band levels)
+- Input and output gain with peak meters, one soft limiter just below full scale at the end of the chain
+- Click-free bypass; parameter changes glide over 35 ms
 
 ## Requirements
 
