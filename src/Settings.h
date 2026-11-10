@@ -66,6 +66,9 @@ public:
 				} else if (key == "fBalance") {
 					const float amount = std::stof(value);
 					balance = std::isfinite(amount) ? std::clamp(amount, 0.0f, 100.0f) : 0.0f;
+				} else if (key == "fWindowScale") {
+					const float scale = std::stof(value);
+					windowScale = std::isfinite(scale) ? std::clamp(scale, 0.5f, 3.0f) : 1.0f;
 				} else if (key == "iToggleKey") {
 					toggleKey = static_cast<std::uint32_t>(std::stoul(value));
 				} else if (key.starts_with("Band")) {
@@ -99,6 +102,7 @@ public:
 		file << "# Spectral balance toward pink noise in percent, 0 turns it off.\nfBalance = " << balance << "\n\n";
 		file << "# Automatic gain, keeps the loudness level when the EQ or Balance changes it.\nbAutoGain = " << (autoGain ? "true" : "false") << "\n\n";
 		file << "# Key that opens the menu, as a Windows key code (115 = F4).\niToggleKey = " << toggleKey << "\n\n";
+		file << "# Size of the equalizer window: 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5 or 3 (2 suits 4K screens).\nfWindowScale = " << windowScale << "\n\n";
 		file << "# Each band: on (0 or 1), type (0 bell, 1 low shelf, 2 high shelf, 3 low pass, 4 high pass), frequency in Hz, gain in dB, Q, slope for low and high pass (12, 24, 48 or 96 dB per octave).\n";
 		for (std::size_t index = 0; index < Eq::kBands; ++index) {
 			const auto& band = bands[index];
@@ -113,6 +117,7 @@ public:
 	bool          autoGain{ false };
 	std::uint32_t toggleKey{ VK_F4 };
 	float         windowAlpha{ 0.70f };
+	float         windowScale{ 1.0f };
 	Eq::Bands     bands{ DefaultBands() };
 
 private:

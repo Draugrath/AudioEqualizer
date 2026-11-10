@@ -20,7 +20,7 @@ SKSE plugin that processes Skyrim's final audio mix in real time: an 8-band para
 
 ## Usage
 
-Press F4 in game, or open Audio Equalizer in the SKSE Menu Framework menu, where the key can be changed. Save Preset writes all settings to `Data/SKSE/Plugins/AudioEqualizer.ini`.
+Press F4 in game, or open Audio Equalizer in the SKSE Menu Framework menu, where the key and the window size (200% for 4K screens) can be changed. Save Preset writes all settings to `Data/SKSE/Plugins/AudioEqualizer.ini`.
 
 ## How it works
 

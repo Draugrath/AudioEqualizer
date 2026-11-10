@@ -1,7 +1,8 @@
 	namespace
 	{
-		constexpr float kGraphWidth = 860.0f;
-		constexpr float kGraphHeight = 360.0f;
+		float U(float a_pixels) { return a_pixels * ImGui::windowScale; }
+		float GraphWidth() { return U(860.0f); }
+		float GraphHeight() { return U(360.0f); }
 		constexpr float kTopDb = 24.0f;
 		constexpr float kBottomDb = -36.0f;
 		constexpr float kRangeDb = 18.0f;
@@ -11,38 +12,38 @@
 			IM_COL32(80, 205, 200, 255), IM_COL32(90, 150, 240, 255), IM_COL32(165, 110, 240, 255), IM_COL32(235, 100, 190, 255)
 		};
 
-		float FrequencyToX(float a_frequency) { return std::log(a_frequency / Eq::kGraphLowHz) / std::log(Eq::kGraphHighHz / Eq::kGraphLowHz) * kGraphWidth; }
-		float XToFrequency(float a_x) { return Eq::kGraphLowHz * std::pow(Eq::kGraphHighHz / Eq::kGraphLowHz, std::clamp(a_x / kGraphWidth, 0.0f, 1.0f)); }
-		float DbToY(float a_db) { return (kTopDb - a_db) / (kTopDb - kBottomDb) * kGraphHeight; }
-		float YToDb(float a_y) { return std::clamp(kTopDb - a_y / kGraphHeight * (kTopDb - kBottomDb), -kRangeDb, kRangeDb); }
+		float FrequencyToX(float a_frequency) { return std::log(a_frequency / Eq::kGraphLowHz) / std::log(Eq::kGraphHighHz / Eq::kGraphLowHz) * GraphWidth(); }
+		float XToFrequency(float a_x) { return Eq::kGraphLowHz * std::pow(Eq::kGraphHighHz / Eq::kGraphLowHz, std::clamp(a_x / GraphWidth(), 0.0f, 1.0f)); }
+		float DbToY(float a_db) { return (kTopDb - a_db) / (kTopDb - kBottomDb) * GraphHeight(); }
+		float YToDb(float a_y) { return std::clamp(kTopDb - a_y / GraphHeight() * (kTopDb - kBottomDb), -kRangeDb, kRangeDb); }
 		bool  HasGain(const Eq::Band& a_band) { return a_band.type != Eq::Type::kLowPass && a_band.type != Eq::Type::kHighPass; }
 
 		bool DrawGraph(Settings& a_settings, int& a_selected)
 		{
 			bool         changed = false;
 			const ImVec2 origin = ImGui::GetCursorScreenPos();
-			ImGui::InvisibleButton("##graph", ImVec2(kGraphWidth, kGraphHeight));
+			ImGui::InvisibleButton("##graph", ImVec2(GraphWidth(), GraphHeight()));
 			const bool hovered = ImGui::IsItemHovered();
 			const bool active = ImGui::IsItemActive();
 			const auto mouse = ImGui::GetIO().MousePos;
 			auto*      draw = ImGui::GetWindowDrawList();
-			draw->AddRectFilled(origin, ImVec2(origin.x + kGraphWidth, origin.y + kGraphHeight), IM_COL32(24, 24, 28, 170));
+			draw->AddRectFilled(origin, ImVec2(origin.x + GraphWidth(), origin.y + GraphHeight()), IM_COL32(24, 24, 28, 170));
 			const struct { float frequency; const char* label; } kMarks[]{ { 10.0f, "10" }, { 20.0f, "20" }, { 50.0f, "50" }, { 100.0f, "100" }, { 200.0f, "200" }, { 500.0f, "500" }, { 1000.0f, "1k" }, { 2000.0f, "2k" }, { 5000.0f, "5k" }, { 10000.0f, "10k" }, { 20000.0f, "20k" } };
 			for (const auto& mark : kMarks) {
 				const float x = origin.x + FrequencyToX(mark.frequency);
-				draw->AddLine(ImVec2(x, origin.y), ImVec2(x, origin.y + kGraphHeight), IM_COL32(70, 70, 76, 120));
-				draw->AddText(ImVec2(x + 3.0f, origin.y + kGraphHeight - 16.0f), IM_COL32(135, 135, 140, 255), mark.label);
+				draw->AddLine(ImVec2(x, origin.y), ImVec2(x, origin.y + GraphHeight()), IM_COL32(70, 70, 76, 120));
+				draw->AddText(ImVec2(x + U(3.0f), origin.y + GraphHeight() - U(16.0f)), IM_COL32(135, 135, 140, 255), mark.label);
 			}
 			for (float db : { 18.0f, 12.0f, 6.0f, 0.0f, -6.0f, -12.0f, -18.0f, -24.0f, -30.0f }) {
 				const float y = origin.y + DbToY(db);
-				draw->AddLine(ImVec2(origin.x, y), ImVec2(origin.x + kGraphWidth, y), db == 0.0f ? IM_COL32(170, 170, 175, 210) : IM_COL32(70, 70, 76, 120));
+				draw->AddLine(ImVec2(origin.x, y), ImVec2(origin.x + GraphWidth(), y), db == 0.0f ? IM_COL32(170, 170, 175, 210) : IM_COL32(70, 70, 76, 120));
 				const auto text = std::format("{:+.0f}", db);
-				draw->AddText(ImVec2(origin.x + kGraphWidth - 30.0f, y - 14.0f), db == 0.0f ? IM_COL32(190, 190, 195, 255) : IM_COL32(135, 135, 140, 255), text.c_str());
+				draw->AddText(ImVec2(origin.x + GraphWidth() - U(30.0f), y - U(14.0f)), db == 0.0f ? IM_COL32(190, 190, 195, 255) : IM_COL32(135, 135, 140, 255), text.c_str());
 			}
 
 			static bool dragging = false;
 			if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-				float nearest = 225.0f;
+				float nearest = U(15.0f) * U(15.0f);
 				for (int band = 0; band < static_cast<int>(Eq::kBands); ++band) {
 					const auto& item = a_settings.bands[band];
 					const float dx = origin.x + FrequencyToX(item.frequency) - mouse.x;
@@ -95,7 +96,7 @@
 				shown.fill(-0.15f);
 			}
 			ImVec2 outline[Eq::kSpectrumPoints];
-			draw->PushClipRect(origin, ImVec2(origin.x + kGraphWidth, origin.y + kGraphHeight), true);
+			draw->PushClipRect(origin, ImVec2(origin.x + GraphWidth(), origin.y + GraphHeight()), true);
 			const auto fillFlags = draw->Flags;
 			draw->Flags &= ~ImDrawListFlags_AntiAliasedFill;
 			for (std::size_t point = 0; point < Eq::kSpectrumPoints; ++point) {
@@ -103,23 +104,23 @@
 					const float value = fresh[point] <= -119.0f ? -0.15f : std::clamp((fresh[point] + tilt[point] + 100.0f) / 80.0f, -0.15f, 1.0f);
 					shown[point] = value > shown[point] ? value : shown[point] + (value - shown[point]) * 0.08f;
 				}
-				const float left = origin.x + kGraphWidth * static_cast<float>(point) / Eq::kSpectrumPoints;
-				const float right = origin.x + kGraphWidth * static_cast<float>(point + 1) / Eq::kSpectrumPoints;
-				outline[point] = ImVec2((left + right) * 0.5f, origin.y + kGraphHeight * (1.0f - shown[point]));
+				const float left = origin.x + GraphWidth() * static_cast<float>(point) / Eq::kSpectrumPoints;
+				const float right = origin.x + GraphWidth() * static_cast<float>(point + 1) / Eq::kSpectrumPoints;
+				outline[point] = ImVec2((left + right) * 0.5f, origin.y + GraphHeight() * (1.0f - shown[point]));
 				if (point > 0) {
-					draw->AddQuadFilled(outline[point - 1], outline[point], ImVec2(outline[point].x, origin.y + kGraphHeight), ImVec2(outline[point - 1].x, origin.y + kGraphHeight), IM_COL32(90, 120, 130, 90));
+					draw->AddQuadFilled(outline[point - 1], outline[point], ImVec2(outline[point].x, origin.y + GraphHeight()), ImVec2(outline[point - 1].x, origin.y + GraphHeight()), IM_COL32(90, 120, 130, 90));
 				}
 			}
 			draw->Flags = fillFlags;
 			for (std::size_t point = 1; point < Eq::kSpectrumPoints; ++point) {
-				draw->AddLine(outline[point - 1], outline[point], IM_COL32(118, 142, 150, 255));
+				draw->AddLine(outline[point - 1], outline[point], IM_COL32(118, 142, 150, 255), U(1.0f));
 			}
 			draw->PopClipRect();
 
 			const float rate = static_cast<float>(Equalizer::SampleRate());
 			const float topHz = rate * 0.499f;
 			const float zero = origin.y + DbToY(0.0f);
-			const float floorY = origin.y + kGraphHeight;
+			const float floorY = origin.y + GraphHeight();
 			static Eq::Bands                                      cachedBands{};
 			static float                                          cachedRate = 0.0f;
 			static std::array<std::array<float, 256>, Eq::kBands + 1> curves{};
@@ -128,7 +129,7 @@
 				cachedBands = a_settings.bands;
 				const auto store = [&](const Eq::Filter& a_filter, std::size_t a_slot) {
 					for (int i = 0; i < 256; ++i) {
-						const float x = kGraphWidth * static_cast<float>(i) / 255.0f;
+						const float x = GraphWidth() * static_cast<float>(i) / 255.0f;
 						curves[a_slot][i] = static_cast<float>(Eq::ResponseDb(a_filter, (std::min)(XToFrequency(x), topHz), rate));
 					}
 				};
@@ -142,7 +143,7 @@
 				}
 				store(Eq::Design(a_settings.bands, rate), Eq::kBands);
 			}
-			draw->PushClipRect(origin, ImVec2(origin.x + kGraphWidth, floorY), true);
+			draw->PushClipRect(origin, ImVec2(origin.x + GraphWidth(), floorY), true);
 			for (int band = 0; band < static_cast<int>(Eq::kBands); ++band) {
 				const auto& item = a_settings.bands[band];
 				if (!item.on || (HasGain(item) && item.gain == 0.0f)) {
@@ -154,24 +155,24 @@
 				const auto  drawFlags = draw->Flags;
 				draw->Flags &= ~ImDrawListFlags_AntiAliasedFill;
 				for (int i = 0; i < 256; ++i) {
-					const float x = kGraphWidth * static_cast<float>(i) / 255.0f;
+					const float x = GraphWidth() * static_cast<float>(i) / 255.0f;
 					const float db = curves[band][i];
-					line[i] = ImVec2(origin.x + x, origin.y + (std::min)(DbToY(db), kGraphHeight + 40.0f));
+					line[i] = ImVec2(origin.x + x, origin.y + (std::min)(DbToY(db), GraphHeight() + U(40.0f)));
 					if (i > 0) {
 						draw->AddQuadFilled(ImVec2(line[i - 1].x, zero), line[i - 1], line[i], ImVec2(line[i].x, zero), fill);
 					}
 				}
 				draw->Flags = drawFlags;
-				draw->AddPolyline(line, 256, (color & 0x00FFFFFFu) | 0x90000000u, 0, 1.0f);
+				draw->AddPolyline(line, 256, (color & 0x00FFFFFFu) | 0x90000000u, 0, U(1.0f));
 			}
 
 			ImVec2 points[256];
 			for (int i = 0; i < 256; ++i) {
-				const float x = kGraphWidth * static_cast<float>(i) / 255.0f;
+				const float x = GraphWidth() * static_cast<float>(i) / 255.0f;
 				const float db = curves[Eq::kBands][i];
-				points[i] = ImVec2(origin.x + x, origin.y + (std::min)(DbToY(db), kGraphHeight + 40.0f));
+				points[i] = ImVec2(origin.x + x, origin.y + (std::min)(DbToY(db), GraphHeight() + U(40.0f)));
 			}
-			draw->AddPolyline(points, 256, IM_COL32(245, 195, 70, 255), 0, 2.5f);
+			draw->AddPolyline(points, 256, IM_COL32(245, 195, 70, 255), 0, U(2.5f));
 			if (a_settings.enabled && a_settings.balance > 0.0f) {
 				constexpr int                               kCurvePoints = 160;
 				static std::array<float, Eq::kBalanceBands> drawnGains{};
@@ -192,7 +193,7 @@
 						}
 					}
 					for (int i = 0; i < kCurvePoints; ++i) {
-						const float  x = kGraphWidth * static_cast<float>(i) / (kCurvePoints - 1);
+						const float  x = GraphWidth() * static_cast<float>(i) / (kCurvePoints - 1);
 						const double w = 2.0 * Eq::kPi * (std::min)(XToFrequency(x), topHz) / rate;
 						double       db = 0.0;
 						for (std::size_t band = 0; band < working; ++band) {
@@ -205,10 +206,10 @@
 				}
 				ImVec2 curve[kCurvePoints];
 				for (int i = 0; i < kCurvePoints; ++i) {
-					curve[i] = ImVec2(origin.x + kGraphWidth * static_cast<float>(i) / (kCurvePoints - 1), origin.y + DbToY(drawnDb[i]));
+					curve[i] = ImVec2(origin.x + GraphWidth() * static_cast<float>(i) / (kCurvePoints - 1), origin.y + DbToY(drawnDb[i]));
 				}
 				if (count > 0) {
-					draw->AddPolyline(curve, kCurvePoints, IM_COL32(150, 200, 235, 210), 0, 1.5f);
+					draw->AddPolyline(curve, kCurvePoints, IM_COL32(150, 200, 235, 210), 0, U(1.5f));
 				}
 			}
 			draw->PopClipRect();
@@ -219,9 +220,9 @@
 				const ImVec2 point(origin.x + FrequencyToX(item.frequency), origin.y + DbToY(height));
 				const ImU32  color = item.on ? kColors[band] : IM_COL32(95, 95, 100, 255);
 				if (band == a_selected) {
-					draw->AddCircle(point, 10.0f, IM_COL32(255, 255, 255, 230), 0, 1.5f);
+					draw->AddCircle(point, U(10.0f), IM_COL32(255, 255, 255, 230), 0, U(1.5f));
 				}
-				draw->AddCircleFilled(point, 6.5f, color);
+				draw->AddCircleFilled(point, U(6.5f), color);
 			}
 			return changed;
 		}
@@ -269,7 +270,7 @@
 			bool changed = false;
 			if (a_knob.usable) {
 				if (ImGui::IsItemActive() && ImGui::GetIO().MouseDelta.y != 0.0f) {
-					a_value = KnobValue(std::clamp(KnobPosition(a_value, a_knob) - ImGui::GetIO().MouseDelta.y * 0.004f, 0.0f, 1.0f), a_knob);
+					a_value = KnobValue(std::clamp(KnobPosition(a_value, a_knob) - ImGui::GetIO().MouseDelta.y * 0.004f / ImGui::windowScale, 0.0f, 1.0f), a_knob);
 					changed = true;
 				}
 				if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
@@ -284,17 +285,17 @@
 			const float  angle = kStart + kSweep * position;
 			const ImU32  color = a_knob.usable ? a_knob.color : IM_COL32(95, 95, 100, 255);
 			const bool   hot = a_knob.usable && (ImGui::IsItemHovered() || ImGui::IsItemActive());
-			draw->PathArcTo(center, a_knob.radius - 1.5f, kStart, kStart + kSweep, 40);
-			draw->PathStroke(IM_COL32(70, 70, 78, 255), 0, 3.0f);
+			draw->PathArcTo(center, a_knob.radius - U(1.5f), kStart, kStart + kSweep, 40);
+			draw->PathStroke(IM_COL32(70, 70, 78, 255), 0, U(3.0f));
 			const float from = a_knob.centered ? kStart + kSweep * 0.5f : kStart;
 			if (std::fabs(angle - from) > 0.01f) {
-				draw->PathArcTo(center, a_knob.radius - 1.5f, (std::min)(from, angle), (std::max)(from, angle), 40);
-				draw->PathStroke(color, 0, 3.0f);
+				draw->PathArcTo(center, a_knob.radius - U(1.5f), (std::min)(from, angle), (std::max)(from, angle), 40);
+				draw->PathStroke(color, 0, U(3.0f));
 			}
-			draw->AddCircleFilled(center, a_knob.radius - 5.5f, hot ? IM_COL32(86, 86, 96, 255) : IM_COL32(64, 64, 72, 255), 32);
+			draw->AddCircleFilled(center, a_knob.radius - U(5.5f), hot ? IM_COL32(86, 86, 96, 255) : IM_COL32(64, 64, 72, 255), 32);
 			const ImVec2 direction(std::cos(angle), std::sin(angle));
 			draw->AddLine(ImVec2(center.x + direction.x * a_knob.radius * 0.28f, center.y + direction.y * a_knob.radius * 0.28f),
-				ImVec2(center.x + direction.x * (a_knob.radius - 6.5f), center.y + direction.y * (a_knob.radius - 6.5f)), a_knob.usable ? IM_COL32(240, 240, 240, 255) : IM_COL32(125, 125, 130, 255), 2.0f);
+				ImVec2(center.x + direction.x * (a_knob.radius - U(6.5f)), center.y + direction.y * (a_knob.radius - U(6.5f))), a_knob.usable ? IM_COL32(240, 240, 240, 255) : IM_COL32(125, 125, 130, 255), U(2.0f));
 			return changed;
 		}
 
@@ -319,14 +320,14 @@
 		{
 			constexpr float kLow = -60.0f;
 			constexpr float kHigh = 6.0f;
-			constexpr float kWidth = 80.0f;
-			constexpr float kHeight = 14.0f;
+			const float     kWidth = U(80.0f);
+			const float     kHeight = U(14.0f);
 			ImGui::PushID(a_id);
 			bool changed = false;
 			if (a_auto) {
-				ImGui::SetCursorPos(ImVec2(a_x, a_y + 9.0f));
+				ImGui::SetCursorPos(ImVec2(a_x, a_y + U(9.0f)));
 				const ImVec2 corner = ImGui::GetCursorScreenPos();
-				if (ImGui::InvisibleButton("##auto", ImVec2(18.0f, 18.0f))) {
+				if (ImGui::InvisibleButton("##auto", ImVec2(U(18.0f), U(18.0f)))) {
 					*a_auto = !*a_auto;
 					changed = true;
 				}
@@ -334,20 +335,20 @@
 				ImGui::Tooltip(autoTip.c_str());
 				const bool   hot = ImGui::IsItemHovered();
 				auto*        icon = ImGui::GetWindowDrawList();
-				const ImVec2 center(corner.x + 9.0f, corner.y + 9.0f);
-				icon->AddCircleFilled(center, 9.0f, *a_auto ? IM_COL32(245, 195, 70, 255) : (hot ? IM_COL32(72, 72, 84, 255) : IM_COL32(52, 52, 60, 255)), 48);
+				const ImVec2 center(corner.x + U(9.0f), corner.y + U(9.0f));
+				icon->AddCircleFilled(center, U(9.0f), *a_auto ? IM_COL32(245, 195, 70, 255) : (hot ? IM_COL32(72, 72, 84, 255) : IM_COL32(52, 52, 60, 255)), 48);
 				constexpr float kLetterScale = 0.72f;
 				const ImVec2    letter = ImGui::CalcTextSize("A");
 				icon->AddText(ImGui::GetFont(), ImGui::GetFontSize() * kLetterScale, ImVec2(center.x - letter.x * kLetterScale * 0.5f, center.y - letter.y * kLetterScale * 0.5f), *a_auto ? IM_COL32(20, 20, 20, 255) : IM_COL32(200, 200, 205, 255), "A");
-				a_x += 22.0f;
+				a_x += U(22.0f);
 			}
-			ImGui::SetCursorPos(ImVec2(a_x, a_y + 1.0f));
+			ImGui::SetCursorPos(ImVec2(a_x, a_y + U(1.0f)));
 			ImGui::TextUnformatted(a_label);
 			const auto gainText = std::format("{:+.1f} dB", a_gain);
-			ImGui::SetCursorPos(ImVec2(a_x, a_y + 18.0f));
+			ImGui::SetCursorPos(ImVec2(a_x, a_y + U(18.0f)));
 			ImGui::TextDisabled("%s", gainText.c_str());
-			ImGui::SetCursorPos(ImVec2(a_x + 56.0f, a_y));
-			changed |= Knob("##gain", a_gain, { -24.0f, 24.0f, 0.0f, false, true, 18.0f, IM_COL32(245, 195, 70, 255), true });
+			ImGui::SetCursorPos(ImVec2(a_x + U(56.0f), a_y));
+			changed |= Knob("##gain", a_gain, { -24.0f, 24.0f, 0.0f, false, true, U(18.0f), IM_COL32(245, 195, 70, 255), true });
 			ImGui::Tooltip(a_auto ? "Output gain after the EQ.\nDrag to change, double-click to reset." : "Input gain before the EQ.\nDrag to change, double-click to reset.");
 
 			if (a_live) {
@@ -365,7 +366,7 @@
 				a_meter = {};
 			}
 
-			ImGui::SetCursorPos(ImVec2(a_x + 102.0f, a_y + 11.0f));
+			ImGui::SetCursorPos(ImVec2(a_x + U(102.0f), a_y + U(11.0f)));
 			const ImVec2 origin = ImGui::GetCursorScreenPos();
 			ImGui::Dummy(ImVec2(kWidth, kHeight));
 			auto*       draw = ImGui::GetWindowDrawList();
@@ -376,11 +377,11 @@
 			draw->AddRectFilled(origin, ImVec2(place(a_meter.level), bottom), color);
 			if (a_meter.hold > kLow) {
 				const float x = place(a_meter.hold);
-				draw->AddLine(ImVec2(x, origin.y), ImVec2(x, bottom), IM_COL32(240, 240, 240, 230), 1.5f);
+				draw->AddLine(ImVec2(x, origin.y), ImVec2(x, bottom), IM_COL32(240, 240, 240, 230), U(1.5f));
 			}
 			const float zero = place(0.0f);
 			draw->AddLine(ImVec2(zero, origin.y), ImVec2(zero, bottom), IM_COL32(190, 190, 195, 200));
-			ImGui::SetCursorPos(ImVec2(a_x + 188.0f, a_y + 9.0f));
+			ImGui::SetCursorPos(ImVec2(a_x + U(188.0f), a_y + U(9.0f)));
 			if (a_meter.hold > -100.0f) {
 				ImGui::Text("%+.1f dB", a_meter.hold);
 			} else {
@@ -393,16 +394,16 @@
 		bool BalanceGroup(float a_x, float a_y, float& a_amount)
 		{
 			ImGui::PushID("balance");
-			ImGui::SetCursorPos(ImVec2(a_x, a_y + 1.0f));
+			ImGui::SetCursorPos(ImVec2(a_x, a_y + U(1.0f)));
 			ImGui::TextUnformatted("Balance");
-			ImGui::SetCursorPos(ImVec2(a_x, a_y + 18.0f));
+			ImGui::SetCursorPos(ImVec2(a_x, a_y + U(18.0f)));
 			if (a_amount > 0.0f) {
 				ImGui::TextDisabled("%.0f%%", a_amount);
 			} else {
 				ImGui::TextDisabled("Off");
 			}
-			ImGui::SetCursorPos(ImVec2(a_x + 56.0f, a_y));
-			const bool changed = Knob("##amount", a_amount, { 0.0f, 100.0f, 0.0f, false, false, 18.0f, IM_COL32(245, 195, 70, 255), true });
+			ImGui::SetCursorPos(ImVec2(a_x + U(56.0f), a_y));
+			const bool changed = Knob("##amount", a_amount, { 0.0f, 100.0f, 0.0f, false, false, U(18.0f), IM_COL32(245, 195, 70, 255), true });
 			ImGui::Tooltip("Balance: spectral balance toward a pink noise curve, zero latency.\nCuts up to 6 dB, boosts up to 3 dB. 0% is off.\nDrag to change, double-click to reset.");
 			ImGui::PopID();
 			return changed;
@@ -410,17 +411,17 @@
 
 		bool BandPanel(Settings& a_settings, int& a_selected, const ImVec2& a_graph)
 		{
-			constexpr float kPanelWidth = 374.0f;
-			constexpr float kPanelHeight = 76.0f;
-			constexpr float kKnobRadius = 18.0f;
-			constexpr float kKnobTop = 5.0f;
+			const float     kPanelWidth = U(374.0f);
+			const float     kPanelHeight = U(76.0f);
+			const float     kKnobRadius = U(18.0f);
+			const float     kKnobTop = U(5.0f);
 			bool            changed = false;
 
-			ImGui::SetCursorScreenPos(ImVec2(a_graph.x + (kGraphWidth - kPanelWidth) * 0.5f, a_graph.y + kGraphHeight - kPanelHeight - 26.0f));
+			ImGui::SetCursorScreenPos(ImVec2(a_graph.x + (GraphWidth() - kPanelWidth) * 0.5f, a_graph.y + GraphHeight() - kPanelHeight - U(26.0f)));
 			ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(40, 40, 48, 60));
 			ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(46, 46, 54, 90));
-			ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8.0f);
-			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, 2.0f));
+			ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, U(8.0f));
+			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(U(6.0f), U(2.0f)));
 			ImGui::BeginChild("##bandPanel", ImVec2(kPanelWidth, kPanelHeight), 0, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
 			auto&                        band = a_settings.bands[a_selected];
@@ -430,11 +431,11 @@
 			int                          type = static_cast<int>(band.type);
 			int                          slope = band.slope >= 96 ? 3 : (band.slope >= 48 ? 2 : (band.slope >= 24 ? 1 : 0));
 
-			ImGui::SetCursorPos(ImVec2(8.0f, 6.0f));
+			ImGui::SetCursorPos(ImVec2(U(8.0f), U(6.0f)));
 			changed |= ImGui::Checkbox("Band on", &band.on);
 			ImGui::Tooltip("Turns this band on or off.");
-			ImGui::SetCursorPos(ImVec2(8.0f, 29.0f));
-			ImGui::SetNextItemWidth(96.0f);
+			ImGui::SetCursorPos(ImVec2(U(8.0f), U(29.0f)));
+			ImGui::SetNextItemWidth(U(96.0f));
 			const bool typeChanged = ImGui::Combo("##type", &type, kTypes, 5);
 			ImGui::Tooltip("Filter type of this band.");
 			if (typeChanged) {
@@ -442,8 +443,8 @@
 				changed = true;
 			}
 			ImGui::BeginDisabled(HasGain(band));
-			ImGui::SetCursorPos(ImVec2(8.0f, 52.0f));
-			ImGui::SetNextItemWidth(96.0f);
+			ImGui::SetCursorPos(ImVec2(U(8.0f), U(52.0f)));
+			ImGui::SetNextItemWidth(U(96.0f));
 			const bool slopeChanged = ImGui::Combo("##slope", &slope, kSlopeNames, 4);
 			ImGui::Tooltip("Slope of the low and high pass filters.");
 			if (slopeChanged) {
@@ -454,7 +455,7 @@
 
 			const ImU32 accent = kColors[a_selected];
 			const auto  defaults = Settings::DefaultBands();
-			const float knobX[]{ 118.0f, 176.0f, 230.0f };
+			const float knobX[]{ U(118.0f), U(176.0f), U(230.0f) };
 			ImGui::SetCursorPos(ImVec2(knobX[0], kKnobTop));
 			changed |= Knob("##frequency", band.frequency, { 20.0f, 20000.0f, defaults[a_selected].frequency, true, false, kKnobRadius, accent, true });
 			ImGui::Tooltip("Frequency of this band.\nDrag to change, double-click to reset.");
@@ -467,8 +468,8 @@
 
 			auto*        draw = ImGui::GetWindowDrawList();
 			const ImVec2 corner = ImGui::GetWindowPos();
-			const float  valueY = corner.y + kKnobTop + kKnobRadius * 2.0f + 2.0f;
-			const float  labelY = valueY + (std::max)(13.0f, ImGui::GetFontSize() * 0.8f);
+			const float  valueY = corner.y + kKnobTop + kKnobRadius * 2.0f + U(2.0f);
+			const float  labelY = valueY + (std::max)(U(13.0f), ImGui::GetFontSize() * 0.8f);
 			const auto   text = IM_COL32(225, 225, 228, 255);
 			const auto   dim = IM_COL32(150, 150, 156, 255);
 			const auto   frequency = band.frequency >= 10000.0f ? std::format("{:.1f} kHz", band.frequency / 1000.0f) : band.frequency >= 1000.0f ? std::format("{:.2f} kHz", band.frequency / 1000.0f) : std::format("{:.0f} Hz", band.frequency);
@@ -489,8 +490,8 @@
 				ImGui::PushStyleColor(ImGuiCol_ButtonHovered, (color & 0x00FFFFFFu) | 0x90000000u);
 				ImGui::PushStyleColor(ImGuiCol_ButtonActive, color);
 				ImGui::PushStyleColor(ImGuiCol_Text, current ? IM_COL32(15, 15, 15, 255) : IM_COL32(230, 230, 230, 255));
-				ImGui::SetCursorPos(ImVec2(274.0f + static_cast<float>(index % 4) * 24.0f, 15.0f + static_cast<float>(index / 4) * 24.0f));
-				const bool pick = ImGui::Button(std::to_string(index + 1).c_str(), ImVec2(21.0f, 21.0f));
+				ImGui::SetCursorPos(ImVec2(U(274.0f + static_cast<float>(index % 4) * 24.0f), U(15.0f + static_cast<float>(index / 4) * 24.0f)));
+				const bool pick = ImGui::Button(std::to_string(index + 1).c_str(), ImVec2(U(21.0f), U(21.0f)));
 				const auto pickTip = std::format("Select band {}.", index + 1);
 				ImGui::Tooltip(pickTip.c_str());
 				if (pick) {
@@ -523,7 +524,7 @@
 
 		const float left = ImGui::GetCursorPosX();
 		const float top = ImGui::GetCursorPosY();
-		ImGui::SetCursorPosY(top + 6.0f);
+		ImGui::SetCursorPosY(top + U(6.0f));
 		bool changed = ImGui::Checkbox("Enabled", &settings.enabled);
 		ImGui::Tooltip("Turns all processing on or off. Switching is instant and click-free.");
 		if (changed) {
@@ -557,11 +558,11 @@
 		ImGui::BeginDisabled(!settings.enabled);
 		auto*     draw = ImGui::GetWindowDrawList();
 		const int firstVertex = draw->VtxBuffer.Size;
-		changed |= BalanceGroup(left + 238.0f, top, settings.balance);
-		changed |= LevelGroup("input", "Input", left + 338.0f, top, settings.inputGain, inputPeak, inputMeter, 0.0f, settings.enabled);
-		changed |= LevelGroup("output", "Output", left + 593.0f, top, settings.outputGain, outputPeak, outputMeter, -1.9f, settings.enabled, &settings.autoGain);
+		changed |= BalanceGroup(left + U(238.0f), top, settings.balance);
+		changed |= LevelGroup("input", "Input", left + U(338.0f), top, settings.inputGain, inputPeak, inputMeter, 0.0f, settings.enabled);
+		changed |= LevelGroup("output", "Output", left + U(593.0f), top, settings.outputGain, outputPeak, outputMeter, -1.9f, settings.enabled, &settings.autoGain);
 
-		ImGui::SetCursorPos(ImVec2(left, top + 42.0f));
+		ImGui::SetCursorPos(ImVec2(left, top + U(42.0f)));
 		const ImVec2 graph = ImGui::GetCursorScreenPos();
 		changed |= DrawGraph(settings, selected);
 		if (!settings.enabled) {
@@ -571,6 +572,12 @@
 		changed |= BandPanel(settings, selected, graph);
 		ImGui::EndDisabled();
 		ImGui::SetCursorScreenPos(below);
+
+		const bool zoomed = ImGui::Zoom(settings.windowScale, U(80.0f));
+		ImGui::Tooltip("Size of this window. 200% suits 4K screens.");
+		if (zoomed) {
+			settings.Save();
+		}
 
 		ImGui::TextDisabled("Drag a point to set frequency and gain. Mouse wheel over the graph sets Q. Double-click a point or knob to reset it.");
 		ImGui::TextDisabled("%s", Equalizer::Status());

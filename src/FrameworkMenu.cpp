@@ -35,6 +35,25 @@ namespace ImGui
 	inline ImVec2 CalcTextSize(const char* a_text) { return ImGuiMCP::CalcTextSize(a_text, nullptr, false, -1.0f); }
 
 	inline float windowFontScale = 0.0f;
+	inline float windowScale = 1.0f;
+
+	inline bool Zoom(float& a_scale, float a_width)
+	{
+		static constexpr float       kScales[]{ 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f };
+		static constexpr const char* kNames[]{ "75%", "100%", "125%", "150%", "175%", "200%", "250%", "300%" };
+		int                          index = 0;
+		for (int i = 1; i < 8; ++i) {
+			if (std::fabs(kScales[i] - a_scale) < std::fabs(kScales[index] - a_scale)) {
+				index = i;
+			}
+		}
+		ImGuiMCP::SetNextItemWidth(a_width);
+		if (!ImGuiMCP::Combo("Window Size", &index, kNames, 8, -1)) {
+			return false;
+		}
+		a_scale = kScales[index];
+		return true;
+	}
 
 	inline void Tooltip(const char* a_text)
 	{
@@ -43,8 +62,8 @@ namespace ImGui
 		}
 		ImGuiMCP::SetWindowFontScale(1.0f);
 		const float size = ImGuiMCP::GetFontSize();
-		if (size > 18.0f) {
-			ImGuiMCP::SetWindowFontScale(18.0f / size);
+		if (size > 18.0f * windowScale) {
+			ImGuiMCP::SetWindowFontScale(18.0f * windowScale / size);
 		}
 		ImGuiMCP::TextUnformatted(a_text);
 		ImGuiMCP::EndTooltip();
@@ -98,18 +117,20 @@ namespace Menu
 			const auto  key = KeyName(Settings::GetSingleton().toggleKey);
 			const auto  title = std::format("AudioEqualizer v{}.{}.{} ({} to close)###AudioEqualizer", version.major(), version.minor(), version.patch(), key);
 			const auto* display = ImGuiMCP::GetIO();
-			ImGuiMCP::SetNextWindowSize(ImVec2((std::min)(display->DisplaySize.x - 80.0f, 880.0f), 0.0f), ImGuiCond_Always);
+			const float scale = std::clamp(Settings::GetSingleton().windowScale, 0.5f, 3.0f);
+			ImGui::windowScale = scale;
+			ImGuiMCP::SetNextWindowSize(ImVec2((std::min)(display->DisplaySize.x - 80.0f, 880.0f * scale), 0.0f), ImGuiCond_Always);
 			ImGuiMCP::SetNextWindowPos(ImVec2(40.0f, display->DisplaySize.y * 0.5f), ImGuiCond_FirstUseEver, ImVec2(0.0f, 0.5f));
 			ImGuiMCP::SetNextWindowBgAlpha(Settings::GetSingleton().windowAlpha);
-			ImGuiMCP::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
-			ImGuiMCP::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
-			ImGuiMCP::PushStyleVar(ImGuiStyleVar_FrameRounding, 5.0f);
+			ImGuiMCP::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * scale, 8.0f * scale));
+			ImGuiMCP::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f * scale);
+			ImGuiMCP::PushStyleVar(ImGuiStyleVar_FrameRounding, 5.0f * scale);
 			ImGuiMCP::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 			ImGuiMCP::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0.0f);
 			ImGuiMCP::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-			ImGuiMCP::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, 3.0f));
-			ImGuiMCP::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 4.0f));
-			ImGuiMCP::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(6.0f, 4.0f));
+			ImGuiMCP::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f * scale, 3.0f * scale));
+			ImGuiMCP::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f * scale, 4.0f * scale));
+			ImGuiMCP::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(6.0f * scale, 4.0f * scale));
 			ImGuiMCP::PushStyleColor(ImGuiCol_Text, IM_COL32(204, 204, 199, 255));
 			ImGuiMCP::PushStyleColor(ImGuiCol_TextDisabled, IM_COL32(165, 165, 160, 255));
 			ImGuiMCP::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(5, 5, 5, 255));
@@ -123,7 +144,7 @@ namespace Menu
 					const float width = ImGuiMCP::CalcTextSize("Save Preset", nullptr, false, -1.0f).x;
 					ImGui::windowFontScale = (std::min)({ 1.0f, 77.0f / width, 18.0f / ImGuiMCP::GetFontSize() });
 				}
-				ImGuiMCP::SetWindowFontScale(ImGui::windowFontScale);
+				ImGuiMCP::SetWindowFontScale(ImGui::windowFontScale * scale);
 				Render();
 			}
 			ImGuiMCP::End();
@@ -148,6 +169,13 @@ namespace Menu
 			if (waiting) {
 				ImGuiMCP::SameLine();
 				ImGuiMCP::TextDisabled("Esc cancels.");
+			}
+
+			if (ImGui::Zoom(settings.windowScale, 100.0f)) {
+				settings.Save();
+			}
+			if (ImGuiMCP::IsItemHovered(0)) {
+				ImGuiMCP::SetTooltip("Size of the equalizer window. 200%% suits 4K screens.");
 			}
 
 			if (ImGuiMCP::Checkbox("Enabled", &settings.enabled)) {
